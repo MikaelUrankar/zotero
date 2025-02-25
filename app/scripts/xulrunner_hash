@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/local/bin/bash
 set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -30,8 +30,10 @@ elif [ $platform == "w" ]; then
 		GECKO_VERSION="$GECKO_VERSION_WIN"
 elif [ $platform == "l" ]; then
 		GECKO_VERSION="$GECKO_VERSION_LINUX"
+elif [ $platform == "f" ]; then
+		GECKO_VERSION="$GECKO_VERSION_FREEBSD"
 else
-		echo "Platform parameter incorrect. Usage: -p m(mac)/w(windows)/l(linux)"
+		echo "Platform parameter incorrect. Usage: -p m(mac)/w(windows)/l(linux)/f(freebsd)"
 		exit 1
 fi
 
