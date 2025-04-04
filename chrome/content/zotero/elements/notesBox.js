@@ -36,7 +36,6 @@ import { getCSSItemTypeIcon } from 'components/icons';
 		`);
 		
 		init() {
-			this._item = null;
 			this._noteIDs = [];
 			this.initCollapsibleSection();
 			this._section.addEventListener('add', this._handleAdd);
@@ -118,6 +117,10 @@ import { getCSSItemTypeIcon } from 'components/icons';
 					remove.setAttribute("data-l10n-id", 'section-button-remove');
 					row.append(remove);
 				}
+
+				row.addEventListener('dragstart', (event) => {
+					Zotero.Utilities.Internal.onDragItems(event, [id]);
+				});
 
 				body.append(row);
 			}

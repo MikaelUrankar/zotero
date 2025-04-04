@@ -163,18 +163,45 @@
 					}
 				}
 			}
-		}
 
+			.attachment-progress {
+				appearance: none;
+				background-color: transparent;
+				background-image: conic-gradient(var(--color-accent) var(--progress), var(--fill-quarternary) var(--progress), var(--fill-quarternary) 100%);
+				mask-image: radial-gradient(circle at center, transparent 5px, black 6px);
+				border-radius: 8px;
+				border: none;
+				display: block;
+				height: 16px;
+				width: 16px;
+
+				@include state(".row.selected") {
+					background-image: conic-gradient(var(--color-accent-text) var(--progress), transparent var(--progress));
+					background-image: conic-gradient(var(--accent-white) var(--progress), #ffffff33 var(--progress), #ffffff33 100%);
+
+					@include state(".virtualized-table:not(:focus-within)") {
+						background-image: conic-gradient(var(--color-accent) var(--progress), var(--fill-quarternary) var(--progress), var(--fill-quarternary) 100%);
+					}
+				}
+
+				&::-moz-progress-bar {
+					appearance: none;
+					background: transparent;
+				}
+			}
+		}
+	
+		.cell.hasAttachment {
+			height: 100%;
+			// Don't show ellipsis
+			text-overflow: unset;
+		}
 	
 		.cell.primary {
 			.retracted {
 				width: 12px;
 				margin-inline-start: 3px;
 			}
-		}
-
-		.cell.no-padding {
-			padding: 0;
 		}
 		
 		.cell.hasAttachment {
@@ -183,11 +210,8 @@
 			display: flex;
 			justify-content: center;
 
-			.cell-text {
-				text-overflow: unset;
-				align-items: center;
-				display: flex;
-				justify-content: center;
+			.icon-treeitemattachmentpdf {
+				background-size: 10px
 			}
 			
 			.icon-missing-file {
@@ -204,7 +228,12 @@
 		}
 	}
 }
-	
+
+item-tree-menu-bar[inactive] {
+	max-height: 0 !important;
+	overflow: hidden;
+}
+
 $-itemTypesIcons: (
 	artwork,
 	attachment-epub,
@@ -286,7 +315,8 @@ $-trashableObjectIcons: (
 $-coloredIcons: (
 	cross: --accent-red,
 	tick: --accent-green,
-	refresh: --fill-secondary
+	refresh: --fill-secondary,
+	plus-circle: --fill-secondary
 );
 
 .icon-item-type {

@@ -38,6 +38,7 @@ pref("extensions.zotero.autoRenameFiles.fileTypes", "application/pdf,application
 pref("extensions.zotero.attachmentRenameTemplate", "{{ firstCreator suffix=\" - \" }}{{ year suffix=\" - \" }}{{ title truncate=\"100\" }}");
 pref("extensions.zotero.capitalizeTitles", false);
 pref("extensions.zotero.launchNonNativeFiles", false);
+pref("extensions.zotero.naturalSorting", true);
 pref("extensions.zotero.sortNotesChronologically", false);
 pref("extensions.zotero.sortNotesChronologically.reader", true);
 pref("extensions.zotero.sortAttachmentsChronologically", false);
@@ -141,6 +142,7 @@ pref("extensions.zotero.integration.useClassicAddCitationDialog", false);
 pref("extensions.zotero.integration.keepAddCitationDialogRaised", false);
 pref("extensions.zotero.integration.upgradeTemplateDelayedOn", 0);
 pref("extensions.zotero.integration.dontPromptMendeleyImport", false);
+pref("extensions.zotero.integration.citationDialogMode", "last-used");
 
 // Connector settings
 pref("extensions.zotero.httpServer.enabled", true);
@@ -224,7 +226,6 @@ pref("extensions.zotero.tabs.title.reader", "titleCreatorYear");
 
 // Reader
 pref("extensions.zotero.reader.textSelectionAnnotationMode", "highlight");
-pref("extensions.zotero.reader.customThemes", "[]");
 pref("extensions.zotero.reader.lightTheme", "");
 pref("extensions.zotero.reader.darkTheme", "dark");
 pref("extensions.zotero.reader.ebookFontFamily", "Georgia, serif");

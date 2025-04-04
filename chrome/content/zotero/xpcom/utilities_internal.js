@@ -459,6 +459,8 @@ Zotero.Utilities.Internal = {
 	 * @param {Zotero.CookieSandbox} [cookieSandbox]
 	 */
 	saveURI: function (wbp, uri, target, headers, cookieSandbox) {
+		Zotero.warn("Zotero.Utilities.Internal.saveURI() is deprecated -- use Zotero.HTTP.download()");
+		
 		// Handle gzip encoding
 		wbp.persistFlags |= wbp.PERSIST_FLAGS_AUTODETECT_APPLY_CONVERSION;
 		// If not explicitly using cache, skip it
@@ -858,10 +860,20 @@ Zotero.Utilities.Internal = {
 	 * and notes arrays and optional compatibility mappings for older translators.
 	 *
 	 * @param {Zotero.Item} zoteroItem
-	 * @param {Boolean} legacy Add mappings for legacy (pre-4.0.27) translators
+	 * @param {Object} [options]
+	 * @param {Boolean} [options.legacy] Add mappings for legacy (pre-4.0.27) translators
+	 * @param {Boolean} [options.skipChildItems] Skip attachments and notes arrays
+	 * @param {Boolean} [options.skipBaseFields] Skip adding base fields to legacy mappings
 	 * @return {Object}
 	 */
-	itemToExportFormat: function (zoteroItem, legacy, skipChildItems) {
+	itemToExportFormat: function (zoteroItem, options) {
+		if (typeof options !== 'object') {
+			Zotero.debug("itemToExportFormat() now takes an 'options' object -- update your code");
+			let [, legacy, skipChildItems, skipBaseFields] = arguments;
+			options = { legacy, skipChildItems, skipBaseFields };
+		}
+		let { legacy, skipChildItems, skipBaseFields } = options;
+		
 		function addCompatibilityMappings(item, zoteroItem) {
 			item.uniqueFields = {};
 
@@ -891,16 +903,18 @@ Zotero.Utilities.Internal = {
 					continue;
 				}
 
-				let baseField = Zotero.ItemFields.getName(
-					Zotero.ItemFields.getBaseIDFromTypeAndField(item.itemType, field)
-				);
+				if (!skipBaseFields) {
+					let baseField = Zotero.ItemFields.getName(
+						Zotero.ItemFields.getBaseIDFromTypeAndField(item.itemType, field)
+					);
 
-				if (!baseField || baseField == field) {
-					item.uniqueFields[field] = item[field];
-				}
-				else {
-					item[baseField] = item[field];
-					item.uniqueFields[baseField] = item[field];
+					if (!baseField || baseField == field) {
+						item.uniqueFields[field] = item[field];
+					}
+					else {
+						item[baseField] = item[field];
+						item.uniqueFields[baseField] = item[field];
+					}
 				}
 			}
 
@@ -958,7 +972,9 @@ Zotero.Utilities.Internal = {
 
 		var item = zoteroItem.toJSON();
 
-		item.uri = Zotero.URI.getItemURI(zoteroItem);
+		if (zoteroItem.libraryID) {
+			item.uri = Zotero.URI.getItemURI(zoteroItem);
+		}
 		delete item.key;
 
 		if (!skipChildItems && !zoteroItem.isAttachment() && !zoteroItem.isNote()) {
@@ -1735,6 +1751,38 @@ Zotero.Utilities.Internal = {
 	},
 	
 	
+	/**
+	 * Select an object in the library tab of the main window
+	 *
+	 * @param {Zotero.DataObject} - Data object (e.g., Zotero.Item) to select
+	 */
+	showInLibrary: async function (dataObject) {
+		var pane = Zotero.getActiveZoteroPane();
+		// Open main window if it's not open (Mac)
+		if (!pane) {
+			let win = Zotero.openMainWindow();
+			await new Zotero.Promise((resolve) => {
+				let onOpen = function () {
+					win.removeEventListener('load', onOpen);
+					resolve();
+				};
+				win.addEventListener('load', onOpen);
+			});
+			pane = win.ZoteroPane;
+		}
+		if (dataObject instanceof Zotero.Item) {
+			pane.selectItem(dataObject.id);
+		}
+		else {
+			throw new Error("Unimplemented");
+		}
+		
+		// Pull window to foreground
+		Zotero.Utilities.Internal.activate(pane.document.defaultView);
+		pane.document.ownerGlobal.focus();
+	},
+	
+	
 	filterStack: function (stack) {
 		return stack.split(/\n/)
 			.filter(line => !line.includes('resource://zotero/bluebird'))
@@ -2171,14 +2219,32 @@ Zotero.Utilities.Internal = {
 			return [operator, args];
 		};
 
+		// We allow unquoted numbers in conditions, e.g. `a == 1` or `a == 1.0`  but not `a == 1.0.0` or `a == 1st edition`
+		const asNumber = (string) => {
+			if (typeof string === 'number') {
+				return string;
+			}
+			const number = parseFloat(string);
+			if (!Number.isNaN(number) && string?.trim().match(/^[+-]?\d+(\.\d+)?$/)) {
+				return number;
+			}
+			return null;
+		};
+
 		// evaluates a condition (e.g. `a == "b"`) into a boolean value
 		const evaluateCondition = (condition) => {
-			const comparators = ['==', '!='];
+			const comparators = ['==', '!=', "<=", ">=", '<', '>'];
 			condition = condition.trim();
-
-			// match[1] if left is statement, match[3] if left is literal, match[4] if left is identifier
-			// match[6] if right is statement, match[8] if right is literal, match[9] if right is identifier
-			// match[2] and match[7] are used to match the quotes around the literal (and then check that the other quote is the same)
+			
+			// Regular expression breakdown for condition matching:
+			// - `match[1]`: Left operand if it's a statement enclosed in `{{...}}`.
+			// - `match[3]`: Left operand if it's a string literal, extracted without quotes.
+			// - `match[4]`: Left operand if it's a standalone identifier (e.g., a variable) or a number
+			// - `match[6]`: Right operand if it's a statement enclosed in `{{...}}`.
+			// - `match[8]`: Right operand if it's a string literal, extracted without quotes.
+			// - `match[9]`: Right operand if it's a standalone identifier or a number.
+			// - `match[2]` and `match[7]`: Captured quotes around string literals, used to ensure matching pairs.
+			// - `match[5]`: The comparator (e.g., `==`, `!=`, `<`, `>`, etc.), extracted from `comparators.join('|')`.
 			const match = condition.match(new RegExp(String.raw`(?:{{(.*?)}}|(?:(['"])(.*?)\2)|([^ ]+)) *(${comparators.join('|')}) *(?:{{(.*?)}}|(?:(['"])(.*?)\7)|([^ ]+))`));
 			
 			if (!match) {
@@ -2190,16 +2256,24 @@ Zotero.Utilities.Internal = {
 				return !!evaluateIdentifier(condition);
 			}
 
-			const left = match[1] ? evaluateStatement(match[1]) : match[3] ?? evaluateIdentifier(match[4]) ?? '';
+			const left = match[1] ? evaluateStatement(match[1]) : match[3] ?? asNumber(match[4]) ?? evaluateIdentifier(match[4]) ?? '';
 			const comparator = match[5];
-			const right = match[6] ? evaluateStatement(match[6]) : match[8] ?? evaluateIdentifier(match[9]) ?? '';
+			const right = match[6] ? evaluateStatement(match[6]) : match[8] ?? asNumber(match[9]) ?? evaluateIdentifier(match[9]) ?? '';
 
 			switch (comparator) {
 				default:
 				case '==':
-					return left.toLowerCase() == right.toLowerCase();
+					return (asNumber(left) === null || asNumber(right === null)) ? left.toLowerCase() == right.toLowerCase() : asNumber(left) == asNumber(right);
 				case '!=':
-					return left.toLowerCase() != right.toLowerCase();
+					return (asNumber(left) === null || asNumber(right === null)) ? left.toLowerCase() != right.toLowerCase() : asNumber(left) != asNumber(right);
+				case ">=":
+					return (asNumber(left) === null || asNumber(right === null)) ? left.toLowerCase() >= right.toLowerCase() : asNumber(left) >= asNumber(right);
+				case "<=":
+					return (asNumber(left) === null || asNumber(right === null)) ? left.toLowerCase() <= right.toLowerCase() : asNumber(left) <= asNumber(right);
+				case '>':
+					return (asNumber(left) === null || asNumber(right === null)) ? left.toLowerCase() > right.toLowerCase() : asNumber(left) > asNumber(right);
+				case '<':
+					return (asNumber(left) === null || asNumber(right === null)) ? left.toLowerCase() < right.toLowerCase() : asNumber(left) < asNumber(right);
 			}
 		};
 
@@ -2435,12 +2509,16 @@ Zotero.Utilities.Internal = {
 				let markup = this._titleMarkup[token];
 				if (markup.beginsTag) {
 					if (targetNode) {
-						let node = targetNode.ownerDocument.createElement(markup.beginsTag);
-						if (markup.style) {
-							Object.assign(node.style, markup.style);
-						}
+						let node;
 						if (markup.inverseStyle && markupStack.some(otherMarkup => otherMarkup.beginsTag === markup.beginsTag)) {
+							node = targetNode.ownerDocument.createElement('span');
 							Object.assign(node.style, markup.inverseStyle);
+						}
+						else {
+							node = targetNode.ownerDocument.createElement(markup.beginsTag);
+							if (markup.style) {
+								Object.assign(node.style, markup.style);
+							}
 						}
 						nodeStack.push(node);
 					}
@@ -2454,11 +2532,13 @@ Zotero.Utilities.Internal = {
 							let discardedNode = nodeStack.pop();
 							if (discardedMarkup.beginsTag === markup.endsTag) {
 								nodeStack[nodeStack.length - 1].append(discardedNode);
-								break;
 							}
 							else {
 								nodeStack[nodeStack.length - 1].append(discardedMarkup.token, ...discardedNode.childNodes);
 							}
+						}
+						if (discardedMarkup.beginsTag === markup.endsTag) {
+							break;
 						}
 					}
 
@@ -2526,7 +2606,19 @@ Zotero.Utilities.Internal.activate = new function () {
 	 * Bring a window to the foreground by interfacing directly with X11
 	 */
 	function _X11BringToForeground(win, intervalID) {
-		var windowTitle = win.getInterface(Ci.nsIWebNavigation).title;
+		try {
+			var windowTitle = win.getInterface(Ci.nsIWebNavigation).title;
+			if (!windowTitle) {
+				windowTitle = win.document.title
+			}
+			if (!windowTitle) {
+				throw new Error(`Could not find window title for ${win.location.href}`);
+			}
+		} catch (e) {
+			Zotero.debug(`Could not find window title for ${win.location.href}`, 1);
+			Zotero.logError(e);
+			win.clearInterval(intervalID);
+		}
 		
 		var x11Window = _X11FindWindow(_x11RootWindow, windowTitle);
 		if (!x11Window) return;
@@ -3197,7 +3289,12 @@ Zotero.Utilities.Internal.OpenURL = {
 	},
 };
 
-Zotero.Utilities.Internal.onDragItems = function (event, itemIDs, dragImage) {
+/**
+ * @param {DragEvent} event
+ * @param {number[]} itemIDs
+ * @param {Element} [dragImage]
+ */
+Zotero.Utilities.Internal.onDragItems = function (event, itemIDs, dragImage = event.currentTarget) {
 	// See note in LibraryTreeView::setDropEffect()
 	if (Zotero.isWin || Zotero.isLinux) {
 		event.dataTransfer.effectAllowed = 'copyMove';

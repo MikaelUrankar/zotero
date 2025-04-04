@@ -113,12 +113,15 @@ var CollectionTree = class CollectionTree extends LibraryTree {
 	
 	async makeVisible() {
 		await this.refresh();
-		var lastViewedID = Zotero.Prefs.get('lastViewedFolder');
+		var lastViewedID = this.props.initialFolder || Zotero.Prefs.get('lastViewedFolder');
 		if (lastViewedID) {
 			var selected = await this.selectByID(lastViewedID);
 		}
 		if (!selected) {
-			await this.selectByID('L' + Zotero.Libraries.userLibraryID);
+			// If the last viewed folder was not selected, default to the first library from
+			// filterLibraryIDs (if any), or the user library
+			let libraryToSelect = ((this.props.filterLibraryIDs || [])[0] || Zotero.Libraries.userLibraryID);
+			await this.selectByID('L' + libraryToSelect);
 		}
 		if (this.selection.selectEventsSuppressed) {
 			let promise = this.waitForSelect();
@@ -472,7 +475,7 @@ var CollectionTree = class CollectionTree extends LibraryTree {
 				onItemContextMenu: (...args) => this.props.onContextMenu && this.props.onContextMenu(...args),
 
 				onKeyDown: this.handleKeyDown,
-				onActivate: this.handleActivate,
+				onActivate: (...args) => (this.props.onActivate ? this.props.onActivate(...args) : this.handleActivate(...args)),
 
 				role: 'tree',
 				label: Zotero.getString('pane.collections.title')
@@ -514,7 +517,7 @@ var CollectionTree = class CollectionTree extends LibraryTree {
 			libraryIncluded = this._includedInTree({ libraryID: Zotero.Libraries.userLibraryID });
 			if (libraryIncluded) {
 				newRows.splice(added++, 0,
-					new Zotero.CollectionTreeRow(this, 'library', { libraryID: Zotero.Libraries.userLibraryID }));
+					new Zotero.CollectionTreeRow(this, 'library', Zotero.Libraries.userLibrary));
 				newRows[0].isOpen = true;
 				added += await this._expandRow(newRows, 0);
 			}
@@ -710,6 +713,7 @@ var CollectionTree = class CollectionTree extends LibraryTree {
 		
 		await this.waitForLoad();
 
+		// Check if items from multiple libraries were specified
 		// Check if items from multiple libraries were specified
 		if (items.length > 1 && new Set(items.map(item => item.libraryID)).size > 1) {
 			Zotero.debug("Can't select items in multiple libraries", 2);

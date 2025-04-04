@@ -37,26 +37,6 @@ ChromeUtils.defineLazyGetter(lazy, 'shellPathPromise', () => {
 		.then(s => s.trimEnd());
 });
 
-// Fix JSON stringify 2028/2029 "bug"
-// Borrowed from http://stackoverflow.com/questions/16686687/json-stringify-and-u2028-u2029-check
-if (JSON.stringify(["\u2028\u2029"]) !== '["\\u2028\\u2029"]') {
-	JSON.stringify = function (stringify) {
-		return function () {
-			var str = stringify.apply(this, arguments);
-			if (str && str.indexOf('\u2028') != -1) str = str.replace(/\u2028/g, '\\u2028');
-			if (str && str.indexOf('\u2029') != -1) str = str.replace(/\u2029/g, '\\u2029');
-			return str;
-		};
-	}(JSON.stringify);
-}
-
-// To be used elsewhere (e.g. varDump)
-function fix2028(str) {
-	if (str.indexOf('\u2028') != -1) str = str.replace(/\u2028/g, '\\u2028');
-	if (str.indexOf('\u2029') != -1) str = str.replace(/\u2029/g, '\\u2029');
-	return str;
-}
-
 var Scaffold = new function () {
 	var _browser;
 	var _translatorsLoadedPromise;
@@ -95,7 +75,7 @@ var Scaffold = new function () {
 		browserUrl.addEventListener('keydown', function (e) {
 			if (e.key == 'Enter') {
 				Zotero.debug('Scaffold: Loading URL in browser: ' + browserUrl.value);
-				_browser.loadURI(Services.io.newURI(browserUrl.value), {
+				_browser.fixupAndLoadURIString(browserUrl.value, {
 					triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal()
 				});
 			}
@@ -680,41 +660,34 @@ var Scaffold = new function () {
 		// No translator was selected in the dialog.
 		if (!translator) return false;
 
-		for (var id in _propertyMap) {
+		for (let id in _propertyMap) {
 			document.getElementById(id).value = translator[_propertyMap[id]] || "";
 		}
 
-		//Strip JSON metadata
-		var code = await _translatorProvider.getCodeForTranslator(translator);
-		var lastUpdatedIndex = code.indexOf('"lastUpdated"');
-		var header = code.substr(0, lastUpdatedIndex + 50);
-		var m = /^\s*{[\S\s]*?}\s*?[\r\n]+/.exec(header);
-		var fixedCode = code.substr(m[0].length);
-		// adjust the first line number when there are an unusual number of metadata lines
-		_linesOfMetadata = m[0].split('\n').length;
-		// load tests into test editing pane
-		_loadTestsFromTranslator(fixedCode);
-		// clear selection
+		let rawCode = await _translatorProvider.getCodeForTranslator(translator);
+		let { metadata, code, testCases } = _splitTranslator(rawCode);
+		// Adjust the first line number
+		_linesOfMetadata = metadata.split('\n').length;
+		
+		// Convert whitespace to tabs
+		_editors.code.setValue(code);
+		// Then go to line 1
+		_editors.code.setPosition({ lineNumber: 1, column: 1 });
+		
+		// We don't use _writeTestsToPane here because we want to avoid _stringifyTests,
+		// which assumes valid test data and will choke on/incorrectly "fix"
+		// weird inputs that the user might want to fix manually.
+		_writeToEditor(_editors.tests, testCases);
+		// Clear selection
 		_editors.tests.setSelection({
 			startLineNumber: 1,
 			endLineNumber: 1,
 			startColumn: 1,
 			endColumn: 1
 		});
-
 		// Set up the test running pane
 		this.populateTests();
 
-		// remove tests from the translator code before loading into the code editor
-		var testStart = fixedCode.indexOf("/** BEGIN TEST CASES **/");
-		var testEnd = fixedCode.indexOf("/** END TEST CASES **/");
-		if (testStart !== -1 && testEnd !== -1) fixedCode = fixedCode.substr(0, testStart) + fixedCode.substr(testEnd + 23);
-		
-		// Convert whitespace to tabs
-		_editors.code.setValue(normalizeWhitespace(fixedCode.trimEnd()));
-		// Then go to line 1
-		_editors.code.setPosition({ lineNumber: 1, column: 1 });
-		
 		// Set Test Input editor language based on translator metadata
 		let language = 'plaintext';
 		if (translator.translatorType & Zotero.Translator.TRANSLATOR_TYPES.import) {
@@ -1044,11 +1017,13 @@ var Scaffold = new function () {
 		if (functionToRun.endsWith('Export')) {
 			let numItems = Zotero.getActiveZoteroPane().getSelectedItems().length;
 			_logOutput(`Exporting ${numItems} item${numItems == 1 ? '' : 's'} selected in library`);
-			_run(functionToRun, input, _selectItems, () => {}, _getTranslatorsHandler(functionToRun), _myExportDone);
+			await _run(functionToRun, input, _selectItems, () => {}, _getTranslatorsHandler(functionToRun), _myExportDone);
 		}
 		else {
-			_run(functionToRun, input, _selectItems, _myItemDone, _getTranslatorsHandler(functionToRun));
+			await _run(functionToRun, input, _selectItems, _myItemDone, _getTranslatorsHandler(functionToRun));
 		}
+		
+		_logOutput('Done');
 	};
 
 	/*
@@ -1213,19 +1188,19 @@ var Scaffold = new function () {
 	/*
 	 * logs item output
 	 */
-	function _myItemDone(obj, item) {
-		delete item.id;
-		if (Array.isArray(item.attachments)) {
-			for (let attachment of item.attachments) {
-				if (attachment.document) {
-					attachment.mimeType = 'text/html';
-					attachment.url = attachment.document.location?.href;
-					delete attachment.document;
-				}
-				delete attachment.complete;
-			}
+	function _myItemDone(obj, jsonItem) {
+		// If the pane hasn't been resized, it won't have a fixed width,
+		// so it'll grow when wrapping text is added. Fix its width now.
+		let rightPane = document.querySelector('#right-pane');
+		rightPane.style.width = rightPane.getBoundingClientRect().width + 'px';
+		
+		let itemPreviews = document.querySelector('#item-previews');
+		if (itemPreviews.hidden) {
+			itemPreviews.hidden = false;
+			itemPreviews.jsonItems = [];
 		}
-		_logOutput("Returned item:\n" + Zotero_TranslatorTester._generateDiff(item, _sanitizeItemForDisplay(item)));
+		itemPreviews.jsonItems.push(jsonItem);
+		itemPreviews.render();
 	}
 
 	/*
@@ -1268,7 +1243,7 @@ var Scaffold = new function () {
 		var output = document.getElementById('output');
 
 		if (typeof string != "string") {
-			string = fix2028(Zotero.Utilities.varDump(string));
+			string = Zotero.Utilities.varDump(string);
 		}
 
 		// Put off actually building the log message and appending it to the console until the next animation frame
@@ -1383,30 +1358,39 @@ var Scaffold = new function () {
 	/*
 	 * loads the translator's tests from the translator code
 	 */
-	function _loadTestsFromTranslator(code) {
+	function _splitTranslator(code) {
+		let metadata = code.substr(0, code.indexOf('"lastUpdated"') + 50)
+			.match(/^\s*\{[\S\s]*?}\s*?[\r\n]+/)[0];
+		code = code.substring(metadata.length);
+
 		var testStart = code.indexOf("/** BEGIN TEST CASES **/");
 		var testEnd = code.indexOf("/** END TEST CASES **/");
+
+		let testCases;
 		if (testStart !== -1 && testEnd !== -1) {
-			code = code.substring(testStart + 24, testEnd);
+			testCases = code.substring(testStart + 24, testEnd);
+			code = code.substring(0, testStart).trimEnd();
+		}
+		else {
+			testCases = 'var testCases = [];';
 		}
 
-		code = code.replace(/var testCases = /, '').trim();
+		testCases = testCases.replace(/^\s*var testCases = /, '').trim();
 		// The JSON parser doesn't like final semicolons
-		if (code.lastIndexOf(';') == code.length - 1) {
-			code = code.slice(0, -1);
+		if (testCases.endsWith(';')) {
+			testCases = testCases.slice(0, -1);
 		}
 
 		try {
-			var testObject = JSON.parse(code);
+			testCases = JSON.stringify(JSON.parse(testCases), null, '\t');
 		}
 		catch (e) {
-			testObject = [];
+			Zotero.logError(e);
 		}
-
-		// We don't use _writeTestsToPane here because we want to avoid _stringifyTests,
-		// which assumes valid test data and will choke on/incorrectly "fix"
-		// weird inputs that the user might want to fix manually.
-		_writeToEditor(_editors.tests, JSON.stringify(testObject, null, "\t"));
+		
+		code = normalizeWhitespace(code);
+		
+		return { metadata, code, testCases };
 	}
 
 	/*
@@ -1445,166 +1429,6 @@ var Scaffold = new function () {
 			'Add test ensuring that detection always fails on this page?');
 	}
 
-	/**
-	 * Mimics most of the behavior of Zotero.Item#fromJSON. Most importantly,
-	 * extracts valid fields from item.extra and inserts invalid fields into
-	 * item.extra.
-	 *
-	 * For example,
-	 *   { itemType: 'journalArticle', extra: 'DOI: foo' }
-	 * becomes
-	 *   { itemType: 'journalArticle', DOI: 'foo' }
-	 * and
-	 *   { itemType: 'book', DOI: 'foo' }
-	 * becomes
-	 *   { itemType: 'book', extra: 'DOI: foo' }
-	 *
-	 * @param {any} item
-	 * @return {any}
-	 */
-	function _sanitizeItemForDisplay(item) {
-		// try to convert to JSON and back to get rid of undesirable undeletable elements; this may fail
-		try {
-			item = JSON.parse(JSON.stringify(item));
-		}
-		catch (e) {}
-		
-		let itemTypeID = Zotero.ItemTypes.getID(item.itemType);
-		
-		var setFields = new Set();
-		var { itemType, fields: extraFields, /* creators: extraCreators, */ extra }
-			= Zotero.Utilities.Internal.extractExtraFields(
-				item.extra || '',
-				null,
-				Object.keys(item)
-					// TEMP until we move creator lines to real creators
-					.concat('creators')
-			);
-		// If a different item type was parsed out of Extra, use that instead
-		if (itemType && item.itemType != itemType) {
-			item.itemType = itemType;
-			itemTypeID = Zotero.ItemTypes.getID(itemType);
-		}
-		
-		for (let [field, value] of extraFields) {
-			item[field] = value;
-			setFields.add(field);
-			extraFields.delete(field);
-		}
-		
-		for (let [field, val] of Object.entries(item)) {
-			switch (field) {
-				case 'itemType':
-				case 'accessDate':
-				case 'creators':
-				case 'attachments':
-				case 'notes':
-				case 'seeAlso':
-					break;
-
-				case 'extra':
-					// We set this later
-					delete item[field];
-					break;
-
-				case 'tags':
-					item[field] = Zotero.Translate.Base.prototype._cleanTags(val);
-					break;
-
-				// Item fields
-				default: {
-					let fieldID = Zotero.ItemFields.getID(field);
-					if (!fieldID) {
-						if (typeof val == 'string') {
-							extraFields.set(field, val);
-							break;
-						}
-						delete item[field];
-						continue;
-					}
-					// Convert to base-mapped field if necessary, so that setFields has the base-mapped field
-					// when it's checked for values from getUsedFields() below
-					let origFieldID = fieldID;
-					let origField = field;
-					fieldID = Zotero.ItemFields.getFieldIDFromTypeAndBase(itemTypeID, fieldID) || fieldID;
-					if (origFieldID != fieldID) {
-						field = Zotero.ItemFields.getName(fieldID);
-					}
-					if (!Zotero.ItemFields.isValidForType(fieldID, itemTypeID)) {
-						extraFields.set(field, val);
-						delete item[field];
-						continue;
-					}
-					if (origFieldID != fieldID) {
-						item[field] = item[origField];
-						delete item[origField];
-					}
-					setFields.add(field);
-				}
-			}
-		}
-		
-		if (extraFields.size) {
-			for (let field of setFields.keys()) {
-				let baseField;
-				if (Zotero.ItemFields.isBaseField(field)) {
-					baseField = field;
-				}
-				else if (Zotero.ItemFields.isValidForType(Zotero.ItemFields.getID(field), itemTypeID)) {
-					let baseFieldID = Zotero.ItemFields.getBaseIDFromTypeAndField(itemTypeID, field);
-					if (baseFieldID) {
-						baseField = baseFieldID;
-					}
-				}
-
-				if (baseField) {
-					let mappedFieldNames = Zotero.ItemFields.getTypeFieldsFromBase(baseField, true);
-					for (let mappedField of mappedFieldNames) {
-						if (extraFields.has(mappedField)) {
-							extraFields.delete(mappedField);
-						}
-					}
-				}
-			}
-			
-			//
-			// Deduplicate remaining Extra fields
-			//
-			// For each invalid-for-type base field, remove any mapped fields with the same value
-			let baseFields = [];
-			for (let field of extraFields.keys()) {
-				if (Zotero.ItemFields.getID(field) && Zotero.ItemFields.isBaseField(field)) {
-					baseFields.push(field);
-				}
-			}
-			for (let baseField of baseFields) {
-				let value = extraFields.get(baseField);
-				let mappedFieldNames = Zotero.ItemFields.getTypeFieldsFromBase(baseField, true);
-				for (let mappedField of mappedFieldNames) {
-					if (extraFields.has(mappedField) && extraFields.get(mappedField) === value) {
-						extraFields.delete(mappedField);
-					}
-				}
-			}
-			
-			// Remove Type-mapped fields from Extra, since 'Type' is mapped to Item Type by citeproc-js
-			// and Type values mostly aren't going to be useful for item types without a Type-mapped field.
-			let typeFieldNames = Zotero.ItemFields.getTypeFieldsFromBase('type', true)
-				.concat('audioFileType');
-			for (let typeFieldName of typeFieldNames) {
-				if (extraFields.has(typeFieldName)) {
-					extraFields.delete(typeFieldName);
-				}
-			}
-		}
-		
-		if (extra || extraFields.size) {
-			item.extra = Zotero.Utilities.Internal.combineExtraFields(extra, extraFields);
-		}
-		
-		return item;
-	}
-	
 	/* sanitizes all items in a test
 	 */
 	function _sanitizeItemsInTest(test) {
@@ -2185,6 +2009,8 @@ var Scaffold = new function () {
 	 */
 	function _clearOutput() {
 		document.getElementById('output').value = '';
+		let itemPane = document.querySelector('#item-previews');
+		itemPane.hidden = true;
 	}
 
 	/*
@@ -2345,7 +2171,9 @@ var Scaffold = new function () {
 			return JSON.parse(lintOutput);
 		}
 		catch (e) {
-			Zotero.logError(e);
+			if (!(e instanceof SyntaxError)) {
+				Zotero.logError(e);
+			}
 		}
 		return [];
 	}

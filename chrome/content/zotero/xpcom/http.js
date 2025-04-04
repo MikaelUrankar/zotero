@@ -3,6 +3,7 @@
  * @namespace
  */
 Zotero.HTTP = new function() {
+	this.disableErrorRetry = false;
 	var _errorDelayIntervals = [2500, 5000, 10000, 20000, 40000, 60000, 120000, 240000, 300000];
 	var _errorDelayMax = 60 * 60 * 1000; // 1 hour
 
@@ -169,7 +170,7 @@ Zotero.HTTP = new function() {
 							continue;
 						}
 						// Don't retry if errorDelayMax is 0
-						if (options.errorDelayMax === 0) {
+						if (options.errorDelayMax === 0 || Zotero.HTTP.disableErrorRetry) {
 							throw e;
 						}
 						// Automatically retry other 5xx errors by default
@@ -269,7 +270,10 @@ Zotero.HTTP = new function() {
 		
 		var deferred = Zotero.Promise.defer();
 		
-		if (!this.mock || url.startsWith('resource://') || url.startsWith('chrome://')) {
+		if (!this.mock
+				|| options.noMock
+				|| url.startsWith('resource://')
+				|| url.startsWith('chrome://')) {
 			var xmlhttp = new XMLHttpRequest();
 		}
 		else {
@@ -324,11 +328,13 @@ Zotero.HTTP = new function() {
 				channel.loadFlags |= Components.interfaces.nsIRequest.LOAD_BYPASS_CACHE;
 			}
 			
-			// Don't follow redirects
+			let notificationCallbacks = options.notificationCallbacks || {};
 			if (options.followRedirects === false) {
-				channel.notificationCallbacks = {
-					QueryInterface: ChromeUtils.generateQI([Ci.nsIInterfaceRequestor, Ci.nsIChannelEventSync]),
-					getInterface: ChromeUtils.generateQI([Ci.nsIChannelEventSink]),
+				if (notificationCallbacks.asyncOnChannelRedirect) {
+					throw new Error("Can't set asyncOnChannelRedirect and followRedirects = false");
+				}
+				notificationCallbacks = {
+					...notificationCallbacks,
 					asyncOnChannelRedirect: function (oldChannel, newChannel, flags, callback) {
 						redirectStatus = (flags & Ci.nsIChannelEventSink.REDIRECT_PERMANENT) ? 301 : 302;
 						redirectLocation = newChannel.URI.spec;
@@ -336,6 +342,9 @@ Zotero.HTTP = new function() {
 						callback.onRedirectVerifyCallback(Cr.NS_BINDING_ABORTED);
 					}
 				};
+			}
+			if (notificationCallbacks) {
+				channel.notificationCallbacks = wrapNotificationCallbacks(notificationCallbacks);
 			}
 		}
 		
@@ -380,15 +389,54 @@ Zotero.HTTP = new function() {
 			// Convert numbers to string to make Sinon happy
 			xmlhttp.setRequestHeader(header, value);
 		}
-
-		// Set timeout
+		
+		const defaultTimeout = 30000;
+		let requestTimeout;
+		let connectTimeout;
+		let inactivityTimeout;
 		if (options.timeout !== 0) {
-			xmlhttp.timeout = options.timeout || 30000;
+			// For downloads, manually implement connect and inactivity timeouts, since the XHR
+			// `timeout` property applies to the whole request, even if data is being downloaded
+			if (options.isDownload) {
+				// TODO: Try a lower default connect timeout and take a separate option?
+				connectTimeout = options.timeout || defaultTimeout;
+				inactivityTimeout = options.timeout || defaultTimeout;
+			}
+			else {
+				requestTimeout = options.timeout || defaultTimeout;
+			}
 		}
-
-		xmlhttp.ontimeout = function() {
-			deferred.reject(new Zotero.HTTP.TimeoutException(options.timeout));
-		};
+		let connectTimerID = null;
+		let inactivityTimerID = null;
+		let timedOutAfter;
+		
+		function clearConnectTimer() {
+			if (connectTimerID) {
+				clearTimeout(connectTimerID);
+				connectTimerID = null;
+			}
+		}
+		
+		function resetInactivityTimer() {
+			clearTimeout(inactivityTimerID);
+			inactivityTimerID = setTimeout(() => {
+				Zotero.warn(`Inactivity timeout for ${method} ${dispURL} -- aborting request`);
+				timedOutAfter = inactivityTimeout;
+				xmlhttp.abort();
+			}, inactivityTimeout);
+		}
+		
+		if (requestTimeout) {
+			xmlhttp.timeout = requestTimeout;
+			xmlhttp.ontimeout = function() {
+				deferred.reject(new Zotero.HTTP.TimeoutException(requestTimeout));
+			};
+		}
+		else if (inactivityTimeout) {
+			xmlhttp.onprogress = function () {
+				resetInactivityTimer();
+			};
+		}
 		
 		// Provide caller with a callback to cancel a request in progress
 		if (options.cancellerReceiver) {
@@ -402,7 +450,17 @@ Zotero.HTTP = new function() {
 			});
 		}
 		
+		if (connectTimeout || inactivityTimeout) {
+			xmlhttp.onloadstart = () => {
+				clearConnectTimer();
+				resetInactivityTimer();
+			};
+		}
+		
 		xmlhttp.onloadend = async function() {
+			clearConnectTimer();
+			clearTimeout(inactivityTimerID);
+			
 			var status = redirectStatus || xmlhttp.status;
 			
 			try {
@@ -504,6 +562,11 @@ Zotero.HTTP = new function() {
 				}
 				Zotero.debug(msg, 1);
 				
+				if (timedOutAfter) {
+					deferred.reject(new Zotero.HTTP.TimeoutException(timedOutAfter));
+					return;
+				}
+				
 				if (xmlhttp.status == 0) {
 					try {
 						this.checkSecurity(channel, { isProxyAuthRequest: options.isProxyAuthRequest });
@@ -529,21 +592,88 @@ Zotero.HTTP = new function() {
 		}
 		
 		// Send binary data
+		let body;
 		if (compressedBody) {
 			let numBytes = compressedBody.length;
 			let ui8Data = new Uint8Array(numBytes);
 			for (let i = 0; i < numBytes; i++) {
 				ui8Data[i] = compressedBody.charCodeAt(i) & 0xff;
 			}
-			xmlhttp.send(ui8Data);
+			body = ui8Data;
 		}
 		// Send regular request
 		else {
-			xmlhttp.send(options.body || null);
+			body = options.body || null;
 		}
+		
+		if (connectTimeout) {
+			connectTimerID = setTimeout(() => {
+				Zotero.warn(`Connect timeout for ${method} ${dispURL} -- aborting request`);
+				timedOutAfter = connectTimeout;
+				xmlhttp.abort();
+			}, connectTimeout);
+		}
+		
+		xmlhttp.send(body);
 		
 		return deferred.promise;
 	};
+	
+	
+	/**
+	 * Create an nsIInterfaceRequestor object based on the callbacks provided
+	 */
+	function wrapNotificationCallbacks(callbacks) {
+		return {
+			QueryInterface: ChromeUtils.generateQI(["nsIInterfaceRequestor"]),
+			
+			getInterface(aIID) {
+				// Handle nsIProgressEventSink (for onProgress, onStatus)
+				if (aIID.equals(Ci.nsIProgressEventSink) && (callbacks.onProgress || callbacks.onStatus)) {
+					return {
+						onProgress: callbacks.onProgress || function () {},
+						onStatus: callbacks.onStatus || function () {},
+					};
+				}
+				
+				// Handle nsIChannelEventSink (for asyncOnChannelRedirect)
+				if (aIID.equals(Ci.nsIChannelEventSink) && callbacks.asyncOnChannelRedirect) {
+					return {
+						asyncOnChannelRedirect: callbacks.asyncOnChannelRedirect,
+					};
+				}
+				
+				throw Components.Exception("No interface available", Cr.NS_ERROR_NO_INTERFACE);
+			}
+		};
+	}
+	
+	
+	/**
+	 * Download a file
+	 *
+	 * @param {nsIURI|String} url - URL to request
+	 * @param {String} path - Path to save file to
+	 * @param {Object} [options] - See `Zotero.HTTP.request()`
+	 */
+	this.download = async function(uri, path, options = {}) {
+		// TODO: Convert request() to fetch() and use ReadableStream
+		var req = await this.request(
+			'GET',
+			uri,
+			{
+				...options,
+				isDownload: true,
+				responseType: 'blob',
+				// Downloads can have channel notification callbacks, etc., so always do them for real
+				noMock: true
+			}
+		);
+		var bytes = await IOUtils.write(path, await req.response.bytes());
+		Zotero.debug(`Saved file to ${path} (${bytes} byte${bytes != 1 ? 's' : ''})`);
+		return req;
+	};
+	
 	
 	/**
 	 * Send an HTTP GET request via XMLHTTPRequest
@@ -1087,6 +1217,9 @@ Zotero.HTTP = new function() {
 	
 	
 	this.getDisplayURI = function (uri, noCredentials) {
+		if (typeof uri == 'string') {
+			uri = NetUtil.newURI(uri);
+		}
 		if (!uri.password) return uri;
 		uri = uri.mutate();
 		if (noCredentials) {

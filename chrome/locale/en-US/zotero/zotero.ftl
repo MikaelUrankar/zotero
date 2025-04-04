@@ -8,10 +8,20 @@ option-or-alt =
         [macos] { general-key-option }
         *[other] { general-key-alt }
     }
+command-or-control =
+    { PLATFORM() ->
+        [macos] { general-key-command }
+        *[other] { general-key-control }
+    }
 return-or-enter =
     { PLATFORM() ->
         [macos] Return
         *[other] Enter
+    }
+delete-or-backspace =
+    { PLATFORM() ->
+        [macos] Delete
+        *[other] Backspace
     }
 
 general-print = Print
@@ -26,6 +36,11 @@ general-tag = Tag
 general-done = Done
 general-view-troubleshooting-instructions = View Troubleshooting Instructions
 general-go-back = Go Back
+general-accept = Accept
+general-cancel = Cancel
+general-show-in-library = Show in Library
+general-restartApp = Restart { -app-name }
+general-restartInTroubleshootingMode = Restart in Troubleshooting Mode
 
 citation-style-label = Citation Style:
 language-label = Language:
@@ -328,30 +343,6 @@ bibliography-outputMethod-print =
     .label = Print
 bibliography-manageStyles-label = Manage Styles…
 
-
-integration-docPrefs-window =
-    .title = { -app-name } - Document Preferences
-integration-addEditCitation-window =
-    .title = { -app-name } - Add/Edit Citation
-integration-editBibliography-window =
-    .title = { -app-name } - Edit Bibliography
-integration-editBibliography-add-button =
-    .aria-label = { general-add }
-integration-editBibliography-remove-button =
-    .aria-label = { general-remove }
-integration-editBibliography-editor = 
-    .aria-label = Edit reference
--integration-editBibliography-include-uncited = To include an uncited item in your bibliography, select it from the items list and press { general-add }.
--integration-editBibliography-exclude-cited = You can also exclude a cited item by selecting it from the list of references and pressing { general-remove }.
--integration-editBibliography-edit-reference = To change how a reference is formatted, use the text editor.
-integration-editBibliography-wrapper =
-    .aria-label = Edit Bibliography dialog
-    .aria-description = { -integration-editBibliography-include-uncited }
-    { -integration-editBibliography-exclude-cited }
-    { -integration-editBibliography-edit-reference }
-integration-quickFormatDialog-window =
-    .title = { -app-name } - Quick Format Citation
-
 styleEditor-locatorType =
     .aria-label = Locator type
 styleEditor-locatorInput = Locator input
@@ -361,38 +352,6 @@ styleEditor-editor =
     .aria-label = Style editor
 styleEditor-preview = 
     .aria-label = Preview
-
-integration-prefs-displayAs-label = Display Citations As:
-integration-prefs-footnotes = 
-    .label = Footnotes
-integration-prefs-endnotes =
-    .label = Endnotes
-integration-prefs-bookmarks =
-    .label = Store citation as bookmarks
-integration-prefs-bookmarks-description = Bookmarks can be shared between Word and LibreOffice, but may cause errors if accidentally modified and cannot be inserted into footnotes.
-integration-prefs-bookmarks-formatNotice = {
-    $show ->
-        [true] The document must be saved as .doc or .docx.
-        *[other] {""}
-}
-integration-prefs-automaticCitationUpdates =
-    .label = Automatically update citations
-    .tooltip = Citations with pending updates will be highlighted in the document
-integration-prefs-automaticCitationUpdates-description = Disabling updates can speed up citation insertion in large documents. Click Refresh to update citations manually.
-integration-prefs-automaticJournalAbbeviations =
-    .label = Use MEDLINE journal abbreviations
-integration-prefs-automaticJournalAbbeviations-description = The “Journal Abbr” field will be ignored.
-integration-prefs-exportDocument =
-    .label = Switch to a Different Word Processor…
-
-integration-error-unable-to-find-winword = { -app-name } could not find a running Word instance.
-
-integration-warning-citation-changes-will-be-lost = You have made changes to a citation that will be lost if you continue.
-integration-warning-bibliography-changes-will-be-lost = You have made changes to the bibliography that will be lost if you continue.
-integration-warning-documentPreferences-changes-will-be-lost = You have made changes to the document preferences that will be lost if you continue.
-integration-warning-discard-changes = Discard Changes
-
-integration-warning-command-is-running = A word processor integration command is already running.
 
 publications-intro-page = My Publications
 
@@ -455,10 +414,12 @@ licenses-cc-by-nc-sa = Creative Commons Attribution-NonCommercial-ShareAlike 4.0
 licenses-cc-more-info = Be sure you have read the Creative Commons <a data-l10n-name="license-considerations">Considerations for licensors</a> before placing your work under a CC license. Note that the license you apply cannot be revoked, even if you later choose different terms or cease publishing the work.
 licenses-cc0-more-info = Be sure you have read the Creative Commons <a data-l10n-name="license-considerations">CC0 FAQ</a> before applying CC0 to your work. Please note that dedicating your work to the public domain is irreversible, even if you later choose different terms or cease publishing the work.
 
+debug-output-logging-restart-in-troubleshooting-mode-checkbox = { general-restartInTroubleshootingMode }
+
 restart-in-troubleshooting-mode-menuitem =
     .label = Restart in Troubleshooting Mode…
     .accesskey = T
-restart-in-troubleshooting-mode-dialog-title = Restart in Troubleshooting Mode
+restart-in-troubleshooting-mode-dialog-title = { general-restartInTroubleshootingMode }
 restart-in-troubleshooting-mode-dialog-description = { -app-name } will restart with all plugins disabled. Some features may not function correctly while Troubleshooting Mode is enabled.
 
 menu-ui-density =
@@ -501,6 +462,7 @@ section-attachments-annotations =
                  [one] { $count } Annotation
                  *[other] { $count } Annotations
              }
+section-attachments-move-to-trash-message = Are you sure you want to move “{ $title }” to the trash?
 section-notes =
     .label = { $count ->
                  [one] { $count } Note
@@ -561,6 +523,12 @@ sidenav-related =
     .tooltiptext = { pane-related }
 sidenav-main-btn-grouping =
     .aria-label = { pane-item-details }
+sidenav-reorder-up =
+    .label = Move Section Up
+sidenav-reorder-down =
+    .label = Move Section Down
+sidenav-reorder-reset =
+    .label = Reset Section Order
 
 pin-section =
     .label = Pin Section
@@ -623,25 +591,6 @@ toggle-preview =
             *[unknown] Toggle
     } Attachment Preview
 
-quickformat-general-instructions = Use Left/Right Arrow to navigate the items of this citation. {
-    $dialogMenu ->
-        [active] Press Shift-Tab to focus the dialog's menu.
-        *[other] { "" }
-} Press { return-or-enter } to save edits to this citation. Press Escape to discard the changes and close the dialog.
-
-quickformat-aria-bubble = This item is included in the citation. Press space bar to customize the item. { quickformat-general-instructions }
-quickformat-aria-input = Type to search for an item to include in this citation. Press Tab to navigate the list of search results. { quickformat-general-instructions }
-quickformat-aria-item = Press { return-or-enter } to add this item to the citation. Press Tab to go back to the search field.
-quickformat-accept = 
-    .tooltiptext = Save edits to this citation
-quickformat-locator-type =
-    .aria-label = Locator type
-quickformat-locator-value =  Locator
-quickformat-citation-options =
-    .tooltiptext = Show citation options
-
-insert-note-aria-input = Type to search for a note. Press Tab to navigate the list of results. Press Escape to close the dialog.
-insert-note-aria-item = Press { return-or-enter } to select this note. Press Tab to go back to the search field. Press Escape to close the dialog.
 quicksearch-mode =
     .aria-label = Quick Search mode
 quicksearch-input =
@@ -704,12 +653,6 @@ architecture-win32-warning-message = Switch to 64-bit { -app-name } for the best
 architecture-warning-action = Download 64-bit { -app-name }
 architecture-x64-on-arm64-message = { -app-name } is running in emulated mode. A native version of { -app-name } will run more efficiently.
 architecture-x64-on-arm64-action = Download { -app-name } for ARM64
-
-first-run-guidance-quickFormat = Type a title, author, and/or year to search for a reference.
-    
-    After you’ve made your selection, click the bubble or select it via the keyboard and press ↓/Space to show citation options such as page number, prefix, and suffix.
-    
-    You can also add a page number directly by including it with your search terms or typing it after the bubble and pressing { return-or-enter }.
 
 first-run-guidance-authorMenu = { -app-name } lets you specify editors and translators too. You can turn an author into an editor or translator by selecting from this menu.
 

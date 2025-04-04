@@ -46,9 +46,7 @@ Zotero.Sync.Storage = new function () {
 	}
 	
 	
-	this.getItemDownloadImageNumber = function (item) {
-		var numImages = 64;
-		
+	this.getItemDownloadProgress = function (item) {
 		var lk = item.libraryID + "/" + item.key;
 		
 		if (typeof _itemDownloadPercentages[lk] == 'undefined') {
@@ -56,18 +54,19 @@ Zotero.Sync.Storage = new function () {
 		}
 		
 		var percentage = _itemDownloadPercentages[lk];
-		return Math.round(percentage / 100 * (numImages - 1)) + 1;
-	}
+		return percentage;
+	};
 	
 	
 	/**
 	 * @param {String} libraryKey
 	 * @param {Number|NULL}
 	 */
-	this.setItemDownloadPercentage = Zotero.Utilities.throttle(function (libraryKey, percentage) {
+	this.setItemDownloadPercentage = function (libraryKey, percentage) {
 		Zotero.debug("Setting image download percentage to " + percentage
 			+ " for item " + libraryKey);
-		
+
+		let isItemPercentageChanged = _itemDownloadPercentages[libraryKey] !== percentage;
 		if (percentage !== false) {
 			_itemDownloadPercentages[libraryKey] = percentage;
 		}
@@ -78,22 +77,32 @@ Zotero.Sync.Storage = new function () {
 		var libraryID, key;
 		[libraryID, key] = libraryKey.split("/");
 		var item = Zotero.Items.getByLibraryAndKey(libraryID, key);
-		// TODO: yield or switch to queue
-		Zotero.Notifier.trigger('redraw', 'item', item.id, { column: "hasAttachment" });
+		// Item may not longer exist in tests
+		if (Zotero.test && !item) {
+			return;
+		}
+		
+		if (isItemPercentageChanged) {
+			// TODO: yield or switch to queue
+			Zotero.Notifier.trigger('redraw', 'item', item.id, { column: "hasAttachment" });
+		}
 		
 		var parent = item.parentItemKey;
 		if (parent) {
 			var parentItem = Zotero.Items.getByLibraryAndKey(libraryID, parent);
 			var parentLibraryKey = libraryID + "/" + parentItem.key;
+			let isParentPercentageChanged = _itemDownloadPercentages[parentLibraryKey] !== percentage;
 			if (percentage !== false) {
 				_itemDownloadPercentages[parentLibraryKey] = percentage;
 			}
 			else {
 				delete _itemDownloadPercentages[parentLibraryKey];
 			}
-			Zotero.Notifier.trigger('redraw', 'item', parentItem.id, { column: "hasAttachment" });
+			if (isParentPercentageChanged) {
+				Zotero.Notifier.trigger('redraw', 'item', parentItem.id, { column: "hasAttachment" });
+			}
 		}
-	}, 100);
+	};
 	
 	
 	function error(e) {
