@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/usr/local/bin/bash -e
 
 #
 # Run this to update the launcher file with the current path to the application icon

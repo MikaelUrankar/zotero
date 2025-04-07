@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/usr/local/bin/bash -e
 
 # Copyright (c) 2011  Zotero
 #                     Center for History and New Media
@@ -39,7 +39,7 @@ Options
  -d DIR              build directory to build from (from build_xpi; cannot be used with -f)
  -f FILE             ZIP file to build from (cannot be used with -d)
  -t                  add devtools
- -p PLATFORMS        build for platforms PLATFORMS (m=Mac, w=Windows, l=Linux)
+ -p PLATFORMS        build for platforms PLATFORMS (m=Mac, w=Windows, l=Linux, f=FreeBSD)
  -c CHANNEL          use update channel CHANNEL
  -e                  enforce signing
  -s                  don't package; only build binaries in staging/ directory
@@ -59,7 +59,7 @@ function replace_line {
 	replacement=$2
 	file=$3
 	
-	if egrep -q "$pattern" "$file"; then
+	if /usr/local/bin/egrep -q "$pattern" "$file"; then
 		perl -pi -e "s/$pattern/$replacement/" "$file"
 	else
 		echo "$pattern" not found in "$file" -- aborting 2>&1
@@ -83,6 +83,7 @@ ZIP_FILE=""
 BUILD_MAC=0
 BUILD_WIN=0
 BUILD_LINUX=0
+BUILD_FREEBSD=0
 PACKAGE=1
 DEVTOOLS=0
 quick_build=0
@@ -101,6 +102,7 @@ while getopts "d:f:p:c:tseq" opt; do
 					m) BUILD_MAC=1;;
 					w) BUILD_WIN=1;;
 					l) BUILD_LINUX=1;;
+					f) BUILD_FREEBSD=1;;
 					*)
 						echo "$0: Invalid platform option ${OPTARG:i:1}"
 						usage
@@ -139,6 +141,8 @@ function check_xulrunner_hash {
 		platform_hash_file="hash-win"
 	elif [ $platform == "l" ]; then
 		platform_hash_file="hash-linux"
+	elif [ $platform == "f" ]; then
+		platform_hash_file="hash-freebsd"
 	else
 		echo "Platform parameter incorrect. Acceptable values: m/w/l"
 		exit 1
@@ -174,6 +178,9 @@ fi
 if [ $BUILD_LINUX == 1 ]; then
 	check_xulrunner_hash l
 fi
+if [ $BUILD_FREEBSD == 1 ]; then
+	check_xulrunner_hash f
+fi
 
 
 
@@ -185,7 +192,7 @@ elif [[ -n "$SOURCE_DIR" ]] && [[ -n "$ZIP_FILE" ]]; then
 fi
 
 # Require at least one platform
-if [[ $BUILD_MAC == 0 ]] && [[ $BUILD_WIN == 0 ]] && [[ $BUILD_LINUX == 0 ]]; then
+if [[ $BUILD_MAC == 0 ]] && [[ $BUILD_WIN == 0 ]] && [[ $BUILD_LINUX == 0 ]] && [[ $BUILD_FREEBSD == 0 ]]; then
 	usage
 fi
 
@@ -206,6 +213,7 @@ BUILD_ID=`date +%Y%m%d%H%M%S`
 MAC_RUNTIME_PATH="$CALLDIR/xulrunner/Firefox.app"
 WIN_RUNTIME_PATH_PREFIX="$CALLDIR/xulrunner/firefox-"
 LINUX_RUNTIME_PATH_PREFIX="$CALLDIR/xulrunner/firefox-"
+FREEBSD_RUNTIME_PATH_PREFIX="$CALLDIR/xulrunner/firefox-"
 
 base_dir="$BUILD_DIR/base"
 app_dir="$BUILD_DIR/base/app"
@@ -241,6 +249,10 @@ elif [ $BUILD_LINUX == 1 ]; then
 	# Non-arch-specific files, so just use 64-bit version
 	cp -Rp "${LINUX_RUNTIME_PATH_PREFIX}x86_64"/browser/omni "$app_dir"
 	unzip -qj "${LINUX_RUNTIME_PATH_PREFIX}x86_64"/omni.ja "hyphenation/*" -d "$app_dir"/hyphenation/
+elif [ $BUILD_FREEBSD == 1 ]; then
+	# Non-arch-specific files, so just use 64-bit version
+	cp -Rp "${FREEBSD_RUNTIME_PATH_PREFIX}amd64"/browser/omni "$app_dir"
+	unzip -qj "${FREEBSD_RUNTIME_PATH_PREFIX}amd64"/omni.ja "hyphenation/*" -d "$app_dir"/hyphenation/
 fi
 set -e
 cd $omni_dir
@@ -270,7 +282,7 @@ prefs_file=defaults/preferences/zotero.js
 # - network.captive-portal-service.enabled
 #       Disable the captive portal check against Mozilla servers
 # - extensions.systemAddon.update.url
-egrep -v '(network.captive-portal-service.enabled|extensions.systemAddon.update.url)' defaults/preferences/firefox.js > $prefs_file
+/usr/local/bin/egrep -v '(network.captive-portal-service.enabled|extensions.systemAddon.update.url)' defaults/preferences/firefox.js > $prefs_file
 rm defaults/preferences/firefox.js
 
 # Combine app and "extension" Zotero prefs
@@ -300,6 +312,13 @@ elif [ $BUILD_LINUX == 1 ]; then
 	# Modify platform-specific prefs
 	perl -pi -e 's/pref\("browser\.preferences\.instantApply", false\);/pref\("browser\.preferences\.instantApply", true);/' $prefs_file
 	perl -pi -e 's/%GECKO_VERSION%/'"$GECKO_VERSION_LINUX"'/g' $prefs_file
+	# Auto-scroll is disabled by default on Linux
+	# https://bugzilla.mozilla.org/show_bug.cgi?id=1747208
+	perl -pi -e 's/pref\("general\.autoScroll", false\);/pref\("general.autoScroll", true);/' $prefs_file
+elif [ $BUILD_FREEBSD == 1 ]; then
+	# Modify platform-specific prefs
+	perl -pi -e 's/pref\("browser\.preferences\.instantApply", false\);/pref\("browser\.preferences\.instantApply", true);/' $prefs_file
+	perl -pi -e 's/%GECKO_VERSION%/'"$GECKO_VERSION_FREEBSD"'/g' $prefs_file
 	# Auto-scroll is disabled by default on Linux
 	# https://bugzilla.mozilla.org/show_bug.cgi?id=1747208
 	perl -pi -e 's/pref\("general\.autoScroll", false\);/pref\("general.autoScroll", true);/' $prefs_file
@@ -402,6 +421,8 @@ if [ $BUILD_MAC == 1 ]; then
 elif [ $BUILD_WIN == 1 ]; then
 	rsync -a "$CALLDIR/assets/win/" ./
 elif [ $BUILD_LINUX == 1 ]; then
+	rsync -a "$CALLDIR/assets/unix/" ./
+elif [ $BUILD_FREEBSD == 1 ]; then
 	rsync -a "$CALLDIR/assets/unix/" ./
 fi
 
@@ -924,6 +945,83 @@ if [ $BUILD_LINUX == 1 ]; then
 			rm -f "$DIST_DIR/Zotero-${VERSION}_linux-$arch.tar.bz2"
 			cd "$STAGE_DIR"
 			tar -cjf "$DIST_DIR/Zotero-${VERSION}_linux-$arch.tar.bz2" "Zotero_linux-$arch"
+		fi
+	done
+fi
+
+# FreeBSD
+if [ $BUILD_FREEBSD == 1 ]; then
+	# Skip 32-bit build in tests
+	if [[ "${ZOTERO_TEST:-}" = "1" ]] || [[ "${SKIP_32:-}" = "1" ]]; then
+		archs="amd64"
+	else
+		archs="i386 amd64"
+	fi
+	archs="i386 amd64"
+	
+	for arch in $archs; do
+		runtime_path="${FREEBSD_RUNTIME_PATH_PREFIX}${arch}"
+		
+		# Set up directory
+		echo 'Building Zotero_freebsd-'$arch
+		APPDIR="$STAGE_DIR/Zotero_freebsd-$arch"
+		rm -rf "$APPDIR"
+		mkdir "$APPDIR"
+		
+		# Merge relevant assets from Firefox
+		cp -r "$runtime_path/"!(application.ini|browser|defaults|devtools-files|crashreporter|crashreporter.ini|firefox|pingsender|precomplete|removed-files|run-mozilla.sh|update-settings.ini|updater|updater.ini) "$APPDIR"
+		
+		# Use our own launcher that calls the original Firefox executable with -app
+		mv "$APPDIR"/firefox-bin "$APPDIR"/zotero-bin
+		cp "$CALLDIR/linux/zotero" "$APPDIR"/zotero
+		
+		# Copy Ubuntu launcher files
+		cp "$CALLDIR/linux/zotero.desktop" "$APPDIR"
+		cp "$CALLDIR/linux/set_launcher_icon" "$APPDIR"
+		
+#		# Use our own updater, because Mozilla's requires updates signed by Mozilla
+#		check_lfs_file "$CALLDIR/linux/updater.tar.xz"
+#		tar xf "$CALLDIR/linux/updater.tar.xz" --to-stdout updater-$arch > "$APPDIR/updater"
+#		chmod 755 "$APPDIR/updater"
+
+		# Copy app files
+		rsync -a "$base_dir/" "$APPDIR/"
+		
+		# Add word processor plug-ins
+		mkdir "$APPDIR/integration"
+		cp -RH "$CALLDIR/modules/zotero-libreoffice-integration/install" "$APPDIR/integration/libreoffice"
+		
+		# Copy icons
+		mkdir -p "$APPDIR/icons/"
+		cp "$CALLDIR/linux/icons/icon32.png" "$APPDIR/icons/"
+		cp "$CALLDIR/linux/icons/icon64.png" "$APPDIR/icons/"
+		cp "$CALLDIR/linux/icons/icon128.png" "$APPDIR/icons/"
+		cp "$CALLDIR/linux/icons/symbolic.svg" "$APPDIR/icons/"
+
+		mkdir -p "$APPDIR/app/chrome/icons/default"
+		cp "$CALLDIR/linux/icons/icon32.png" "$APPDIR/app/chrome/icons/default/defaul32.png"
+		cp "$CALLDIR/linux/icons/icon64.png" "$APPDIR/app/chrome/icons/default/default64.png"
+		cp "$CALLDIR/linux/icons/icon128.png" "$APPDIR/app/chrome/icons/default/default128.png"
+		
+		# Delete extraneous files
+		find "$APPDIR" -depth -type d -name .git -exec rm -rf {} \;
+		find "$APPDIR" \( -name .DS_Store -or -name update.rdf \) -exec rm -f {} \;
+		
+		# Copy over removed-files and make a precomplete file
+		pushd "$APPDIR"
+		cp "$CALLDIR/update-packaging/removed-files_freebsd-$arch" removed-files
+		python3 "$CALLDIR/scripts/createprecomplete.py"
+		if [ ! -s precomplete ]; then
+			echo "precomplete file not created -- aborting" 2>&1
+			exit 1
+		fi
+		popd
+		
+		if [ $PACKAGE == 1 ]; then
+			# Create tar
+			rm -f "$DIST_DIR/Zotero-${VERSION}_freebsd-$arch.tar.bz2"
+			cd "$STAGE_DIR"
+			tar -cjf "$DIST_DIR/Zotero-${VERSION}_freebsd-$arch.tar.bz2" "Zotero_freebsd-$arch"
 		fi
 	done
 fi

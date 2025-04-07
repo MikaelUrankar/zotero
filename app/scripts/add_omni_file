@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/local/bin/bash
 set -euo pipefail
 
 #
@@ -35,9 +35,10 @@ done
 mac_path="$STAGE_DIR/Zotero.app/Contents/Resources"
 win_path="$STAGE_DIR/Zotero_win-x64"
 linux_path="$STAGE_DIR/Zotero_linux-x86_64"
+freebsd_path="$STAGE_DIR/Zotero_freebsd-amd64"
 
 added=0
-for path in "$mac_path" "$win_path" "$linux_path"; do
+for path in "$mac_path" "$win_path" "$linux_path" "$freebsd_path"; do
 	if [ -d "$path" ]; then
 		echo "$path/app/omni.ja"
 		echo "Updating $(basename $(dirname $(dirname $path)))"

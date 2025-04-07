@@ -199,7 +199,7 @@ pref("extensions.zotero.fileHandler.snapshot", "");
 pref("extensions.zotero.openReaderInNewWindow", false);
 
 // File/URL opening executable if launch() fails
-pref("extensions.zotero.fallbackLauncher.unix", "/usr/bin/xdg-open");
+pref("extensions.zotero.fallbackLauncher.unix", "/usr/local/bin/xdg-open");
 pref("extensions.zotero.fallbackLauncher.windows", "");
 
 //Translators
