@@ -197,10 +197,6 @@ if [[ $BUILD_MAC == 0 ]] && [[ $BUILD_WIN == 0 ]] && [[ $BUILD_LINUX == 0 ]] && 
 		CYGWIN*|MINGW*) BUILD_WIN=1 ;;
 	esac
 fi
-if [ $BUILD_FREEBSD == 1 ]; then
-	# no firefox-esr package available on i386 as of 20260529
-	check_xulrunner_hash f amd64
-fi
 
 # Check xulrunner hashes for requested builds
 if [ $BUILD_MAC == 1 ]; then
@@ -314,9 +310,8 @@ elif [[ $BUILD_LINUX == 1 ]]; then
 	unzip -qj "${LINUX_RUNTIME_PATH_PREFIX}${omni_arch}"/omni.ja "hyphenation/*" \
 		-d "$app_dir"/hyphenation/
 elif [[ $BUILD_FREEBSD == 1 ]]; then
-       # Non-arch-specific files, so just use 64-bit version
-       cp -Rp "${FREEBSD_RUNTIME_PATH_PREFIX}amd64"/browser/omni "$app_dir"
-       unzip -qj "${FREEBSD_RUNTIME_PATH_PREFIX}amd64"/omni.ja "hyphenation/*" -d "$app_dir"/hyphenation/
+	cp -Rp "${FREEBSD_RUNTIME_PATH_PREFIX}amd64"/browser/omni "$app_dir"
+	unzip -qj "${FREEBSD_RUNTIME_PATH_PREFIX}amd64"/omni.ja "hyphenation/*" -d "$app_dir"/hyphenation/
 fi
 set -e
 cd $omni_dir
@@ -1127,7 +1122,7 @@ if [ $BUILD_FREEBSD == 1 ]; then
 		APPDIR="$STAGE_DIR/Zotero_freebsd-$arch"
 		rm -rf "$APPDIR"
 		mkdir "$APPDIR"
-		
+
 		# Merge relevant assets from Firefox
 		cp -r "$runtime_path/"!(application.ini|browser|defaults|devtools-files|crashreporter|crashreporter.ini|firefox|pingsender|precomplete|removed-files|run-mozilla.sh|update-settings.ini|updater|updater.ini) "$APPDIR"
 		
@@ -1151,17 +1146,12 @@ if [ $BUILD_FREEBSD == 1 ]; then
 		mkdir "$APPDIR/integration"
 		cp -RH "$CALLDIR/modules/zotero-libreoffice-integration/install" "$APPDIR/integration/libreoffice"
 		
-		# Copy icons
 		mkdir -p "$APPDIR/icons/"
+		# Copy icons
 		cp "$CALLDIR/linux/icons/icon32.png" "$APPDIR/icons/"
 		cp "$CALLDIR/linux/icons/icon64.png" "$APPDIR/icons/"
 		cp "$CALLDIR/linux/icons/icon128.png" "$APPDIR/icons/"
 		cp "$CALLDIR/linux/icons/symbolic.svg" "$APPDIR/icons/"
-
-		mkdir -p "$APPDIR/app/chrome/icons/default"
-		cp "$CALLDIR/linux/icons/icon32.png" "$APPDIR/app/chrome/icons/default/defaul32.png"
-		cp "$CALLDIR/linux/icons/icon64.png" "$APPDIR/app/chrome/icons/default/default64.png"
-		cp "$CALLDIR/linux/icons/icon128.png" "$APPDIR/app/chrome/icons/default/default128.png"
 		
 		# Delete extraneous files
 		find "$APPDIR" -depth -type d -name .git -exec rm -rf {} \;
@@ -1176,7 +1166,8 @@ if [ $BUILD_FREEBSD == 1 ]; then
 			exit 1
 		fi
 		popd
-		
+
+
 		if [ $PACKAGE == 1 ]; then
 			# Create tar
 			rm -f "$DIST_DIR/Zotero-${VERSION}_freebsd-$arch.tar.bz2"
