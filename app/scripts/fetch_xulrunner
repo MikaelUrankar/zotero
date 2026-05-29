@@ -27,7 +27,7 @@ cd "$APP_ROOT_DIR"
 
 usage() {
 	cat >&2 <<'DONE'
-Usage: fetch_xulrunner.sh -p <m|w|l> [-a ARCH]
+Usage: fetch_xulrunner.sh -p <m|w|l|f> [-a ARCH]
 
 Required
  -p PLATFORM   m (Mac), w (Windows), l (Linux), f (freebsd)
