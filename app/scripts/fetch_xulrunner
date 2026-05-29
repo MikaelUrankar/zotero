@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/local/bin/bash
 set -euo pipefail
 
 # Copyright (c) 2011  Zotero
@@ -30,7 +30,7 @@ usage() {
 Usage: fetch_xulrunner.sh -p <m|w|l> [-a ARCH]
 
 Required
- -p PLATFORM   m (Mac), w (Windows), l (Linux)
+ -p PLATFORM   m (Mac), w (Windows), l (Linux), f (freebsd)
 
 Optional / Conditional
  -a ARCH       - Mac:      disallowed (builds are universal)
@@ -44,6 +44,7 @@ DONE
 BUILD_MAC=0
 BUILD_WIN=0
 BUILD_LINUX=0
+BUILD_FREEBSD=0
 arch=""
 while getopts 'p:a:' opt; do
 	case $opt in
@@ -53,6 +54,7 @@ while getopts 'p:a:' opt; do
 					m) BUILD_MAC=1;;
 					w) BUILD_WIN=1;;
 					l) BUILD_LINUX=1;;
+					f) BUILD_FREEBSD=1;;
 					*) echo "Invalid platform: ${OPTARG:i:1}"; echo; usage;;
 				esac
 			done;;
@@ -63,7 +65,7 @@ while getopts 'p:a:' opt; do
 done
 
 # Require at least one platform
-if [[ $BUILD_MAC == 0 ]] && [[ $BUILD_WIN == 0 ]] && [[ $BUILD_LINUX == 0 ]]; then
+if [[ $BUILD_MAC == 0 ]] && [[ $BUILD_WIN == 0 ]] && [[ $BUILD_LINUX == 0 ]] && [[ $BUILD_FREEBSD == 0 ]]; then
 	usage
 fi
 
@@ -149,14 +151,15 @@ function modify_omni {
 	# Continue using app.update.auto in prefs.js on Windows
 	replace_line 'PER_INSTALLATION_PREFS_PLATFORMS = \["win"\]' 'PER_INSTALLATION_PREFS_PLATFORMS = []' modules/UpdateUtils.sys.mjs
 	
-	# Prompt if major update is available instead of installing automatically on restart
-	replace_line 'if \(!updateAuto\) \{' 'if (update.type == "major") {
-      LOG("UpdateService:_selectAndInstallUpdate - prompting because it is a major update");
-      AUSTLMY.pingCheckCode(this._pingSuffix, AUSTLMY.CHK_SHOWPROMPT_PREF);
-      Services.obs.notifyObservers(update, "update-available", "show-prompt");
-      return;
-    }
-    if (!updateAuto) {' modules/UpdateService.sys.mjs
+# modules/UpdateService.sys.mjs doesn't exist on FreeBSD
+#	# Prompt if major update is available instead of installing automatically on restart
+#	replace_line 'if \(!updateAuto\) \{' 'if (update.type == "major") {
+#      LOG("UpdateService:_selectAndInstallUpdate - prompting because it is a major update");
+#      AUSTLMY.pingCheckCode(this._pingSuffix, AUSTLMY.CHK_SHOWPROMPT_PREF);
+#      Services.obs.notifyObservers(update, "update-available", "show-prompt");
+#      return;
+#    }
+#    if (!updateAuto) {' modules/UpdateService.sys.mjs
 	
 	# Avoid console warning about resource://gre/modules/FxAccountsCommon.js
 	replace_line 'const logins = this._data.logins;' 'const logins = this._data.logins; if (this._data.logins.length != -1) return;' modules/LoginStore.sys.mjs
@@ -164,9 +167,10 @@ function modify_omni {
 	# Prevent error during network requests
 	replace_line 'async lazyInit\(\) \{' 'async lazyInit() { if (this.features) return false;' modules/UrlClassifierExceptionListService.sys.mjs
 
-	# Silence CrashManager "Could not get children of [...]/Crash Reports/events" spam
-	replace_line '\/\/ Missing events folders are allowed' '\/\/ Missing events folders are allowed (silence warning)
-        if (ex) return entries;' modules/CrashManager.sys.mjs
+# modules/CrashManager.sys.mjs doesn't exist on FreeBSD
+#	# Silence CrashManager "Could not get children of [...]/Crash Reports/events" spam
+#	replace_line '\/\/ Missing events folders are allowed' '\/\/ Missing events folders are allowed (silence warning)
+#        if (ex) return entries;' modules/CrashManager.sys.mjs
 
 	# Several services pull in services-settings (which we strip) and throw
 	# at profile-after-change. Remove their #init() methods to prevent errors.
@@ -528,6 +532,7 @@ function modify_omni {
 	replace_line 'function dch_handle\(cmdLine\) \{' 'function dch_handle(cmdLine) {
     if (cmdLine.state == Ci.nsICommandLine.STATE_REMOTE_AUTO) { return; }
     ' modules/BrowserContentHandler.sys.mjs
+
 }
 
 mkdir -p xulrunner
@@ -775,6 +780,41 @@ if [ $BUILD_LINUX == 1 ]; then
 		rm "firefox-$GECKO_VERSION.tar.xz"
 		
 		echo "$( $SCRIPT_DIR/xulrunner_hash -p l -a "$arch" )" > "hash-linux-${arch}"
+	done
+fi
+
+if [ $BUILD_FREEBSD == 1 ]; then
+	GECKO_VERSION="$GECKO_VERSION_FREEBSD"
+	DOWNLOAD_URL="https://cocyte.westeurope.cloudapp.azure.com/zotero"
+
+	# Include 32-bit build if not in CI
+	if [[ "${CI:-}" = "1" ]] || [[ "${SKIP_32:-}" = "1" ]]; then
+		arches="amd64"
+	else
+		# no firefox-esr package available on i386 as of 20260529
+		arches="amd64"
+	fi
+	for arch in $arches; do
+		xdir="firefox-$arch"
+		rm -rf $xdir
+		
+		archived_file="firefox-$GECKO_VERSION-$arch.pkg"
+		if [ -e "$archived_file" ]; then
+			echo "Using $archived_file"
+			cp "$archived_file" "firefox-$GECKO_VERSION.pkg"
+		else
+			fetch -o $archived_file "$DOWNLOAD_URL/$arch/firefox-esr-$GECKO_VERSION.pkg"
+		fi
+
+		tar xvf firefox-$GECKO_VERSION-$arch.pkg /usr/local/lib/firefox
+		mv usr/local/lib/firefox firefox-$arch
+		rm -rf usr
+
+		pushd firefox-$arch
+		modify_omni $arch
+		popd
+		echo $($SCRIPT_DIR/xulrunner_hash -p f) > hash-freebsd
+		rm "firefox-$GECKO_VERSION-$arch.pkg"
 	done
 fi
 

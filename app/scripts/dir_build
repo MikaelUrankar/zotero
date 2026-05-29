@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/local/bin/bash
 set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -14,7 +14,7 @@ If -p is omitted, platform (and, for Windows/Linux, architecture) default to the
 Architecture is ignored for Mac builds, which are always shipped as universal binaries.
 
 Options
- -p PLATFORM        Platform to build (m=Mac, w=Windows, l=Linux)
+ -p PLATFORMS       Platforms to build (m=Mac, w=Windows, l=Linux, f=FreeBSD)
  -a ARCH            Target architecture (arm64, x64, i686, win32) — **Windows/Linux only**
  -t                 add devtools
  -q                 quick build (skip compression and other optional steps for faster restarts during development)
@@ -37,6 +37,7 @@ while getopts "tp:a:q" opt; do
 					m) platform="m";;
 					w) platform="w";;
 					l) platform="l";;
+					l) platform="f";;
 					*)
 						echo "$0: Invalid platform option ${OPTARG:i:1}" >&2
 						usage
