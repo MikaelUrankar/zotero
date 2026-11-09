@@ -54,6 +54,8 @@ function build_manifest_file_list {
 function stat_file_list {
 	if [[ "$OSTYPE" == "darwin"* ]]; then
 		xargs -0 stat -L -f '%z|%Fm|%N'
+	elif [[ "$OSTYPE" == "FreeBSD"* ]]; then
+		xargs -0 stat -L -f '%z|%Fm|%N'
 	else
 		xargs -0 stat -L -c '%s|%y|%n'
 	fi | sed -E 's,^([0-9]+[|][^|]+)[|](\./)?,\1'$'\t'','
@@ -109,6 +111,8 @@ function generate_app_hash {
 		{
 			if [[ "$OSTYPE" == "darwin"* ]]; then
 				find -L "${paths[@]}" -name '.*' -prune -o -type f -print0 | xargs -0 stat -L -f '%N|%z|%m'
+			elif [[ "$OSTYPE" == "FreeBSD"* ]]; then
+				find -L "${paths[@]}" -name '.*' -prune -o -type f -print0 | xargs -0 stat -L -f '%N|%z|%m'
 			else
 				find -L "${paths[@]}" -name '.*' -prune -o -type f -print0 | xargs -0 stat -L -c '%n|%s|%Y'
 			fi
@@ -120,7 +124,7 @@ function generate_app_hash {
 function check_line {
 	pattern=$1
 	file=$2
-	if ! grep -E -q "$pattern" "$file"; then
+	if ! /usr/local/bin/ggrep -E -q "$pattern" "$file"; then
 		echo "$pattern" not found in "$file" -- aborting 2>&1
 		exit 1
 	fi
@@ -131,7 +135,7 @@ function replace_line {
 	replacement=$2
 	file=$3
 	
-	if grep -E -q "$pattern" "$file"; then
+	if /usr/local/bin/ggrep -E -q "$pattern" "$file"; then
 		perl -pi -e "s/$pattern/$replacement/" "$file"
 	else
 		echo "$pattern" not found in "$file" -- aborting 2>&1
@@ -143,8 +147,8 @@ function remove_line {
 	pattern=$1
 	file=$2
 	
-	if grep -E -q "$pattern" "$file"; then
-		grep -E -v "$pattern" "$file" > "$file.tmp"
+	if /usr/local/bin/ggrep -E -q "$pattern" "$file"; then
+		/usr/local/bin/ggrep -E -v "$pattern" "$file" > "$file.tmp"
 		mv "$file.tmp" "$file"
 	else
 		echo "$pattern" not found in "$file" -- aborting 2>&1
@@ -157,7 +161,7 @@ function remove_between {
 	end_pattern=$2
 	file=$3
 	
-	if grep -E -q "$start_pattern" "$file" && grep -E -q "$end_pattern" "$file"; then
+	if /usr/local/bin/ggrep -E -q "$start_pattern" "$file" && /usr/local/bin/ggrep -E -q "$end_pattern" "$file"; then
 		perl -ni -e '
 		if (/'"$start_pattern"'/) { $skip = 1; next; }
 		elsif ($skip && /'"$end_pattern"'/) { $skip = 0; next; }

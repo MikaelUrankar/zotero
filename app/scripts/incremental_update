@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/local/bin/bash
 set -euo pipefail
 
 #
@@ -28,7 +28,7 @@ function usage {
 Usage: $0 -p PLATFORM [-a ARCH] [-t]
 
 Options
- -p PLATFORM        platform of the staged build to update (m=Mac, w=Windows, l=Linux)
+ -p PLATFORM        platform of the staged build to update (m=Mac, w=Windows, l=Linux, f=FreeBSD)
  -a ARCH            target architecture (Windows/Linux only)
  -t                 devtools requested
 DONE
@@ -87,6 +87,9 @@ case $platform in
 		;;
 	l)
 		app_dir="$STAGE_DIR/Zotero_linux-$(get_canonical_arch l "$arch")"
+		;;
+	f)
+		app_dir="$STAGE_DIR/Zotero_freebsd-$(get_canonical_arch f "$arch")"
 		;;
 	*)
 		fall_back "Unknown platform '$platform'"
