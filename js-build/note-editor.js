@@ -37,7 +37,7 @@ async function getZoteroNoteEditor(signatures) {
 		}
 		catch (e) {
 			console.error(e);
-			await exec('npm ci', { cwd: modulePath });
+			await exec('npm i', { cwd: modulePath });
 			await exec('npm run build', { cwd: modulePath });
 			await fs.copy(path.join(modulePath, 'build', 'zotero'), targetDir);
 		}

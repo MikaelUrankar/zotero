@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/usr/local/bin/bash -e
 
 #
 # Generate platform-specific PNG files from SVG files for the main toolbar button
